@@ -1,6 +1,6 @@
 # surrogate-fish
 
-This repertory is a **REPRODUCTION** of paper [From Simulation to Reality: A Learning Framework for Fish-Like Robots to Perform Control Tasks](https://ieeexplore.ieee.org/document/9802680/) published in T-RO 2022. 
+This repertory is a **REPRODUCTION** of paper [From Simulation to Reality: A Learning Framework for Fish-Like Robots to Perform Control Tasks](https://ieeexplore.ieee.org/document/9802680/) published in T-RO 2022.
 
 This repertory have implemented:
 
@@ -22,9 +22,28 @@ The following are noteworthy points that I have discovered during the process of
 
 ## Getting Started
 
+### Tracking Training Process using Tensorboard
+
+```bash
+tensorboard --logdir ./tensorboard --port 6008
+```
+
 PS: In addition, while ensuring the readability of the code, I have provided concise enough code so that you can roughly infer the purpose of each part by its name. If you have any questions, you can raise an ISSUE and I am happy to help you fix it and reproduce this work.
 
 ## Experimental Results
+
+### Position Control
+
+slow turning
+![position control in slow turning](./figs/pc-slow-turning.svg)
+
+sharp turning
+![position control in sharp turning](./figs/pc-sharp-turning.svg)
+
+near distance
+![position control in near distance](./figs/pc-near-distance.svg)
+
+PS: The title 'rl-XXXXX' repersent different type of reward function.
 
 ### Path Following
 
@@ -48,6 +67,12 @@ hard-level (delta_p = 1.8, delta_phi = 1.57, eta = 2.55)
 ![pose regulation in eight curve](./figs/pr-hard.svg)
 
 PS: The 'il-pid' represent the Imitation Learning (IL) policy based on 'pid' controller. The 'rl-hard' represent the policy after learning in the hard-level env.
+
+## Conclusions
+
+1. Do NOT use REINFORCE algorithm, it is slow, unstable.
+2. Dynamics limited (by Central Pattern Generator(CPG)) robotic fish can NOT do sharp turning.
+3. In current scenario (surrogate model), DRL does NOT demostrate advantage compare to PID in motion performance (episodic return).
 
 ## References
 

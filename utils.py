@@ -47,17 +47,5 @@ def mapping_period(ori_angle, angle_range) -> np.ndarray:
     return res_angle
 
 
-def analyze_init_condition(val):
-    assert isinstance(val, list), f"'{val}' is not list!"
-    if len(val) == 1:
-        return val[0]
-    elif len(val) == 2:
-        return np.random.uniform(*val)
-    elif len(val) >= 3:
-        return np.random.choice(val)
-    else:
-        NotImplementedError
-
-
 if __name__ == '__main__':
     pass

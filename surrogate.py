@@ -7,7 +7,17 @@ from gymnasium import register
 
 from utils import *
 
-np.set_printoptions(precision=3, suppress=True, floatmode='fixed', linewidth=150)  # useful for printing
+
+def analyze_init_condition(val:list):
+    assert isinstance(val, list), f"'{val}' is NOT list!"
+    if len(val) == 1:
+        return val[0]
+    elif len(val) == 2:
+        return np.random.uniform(*val)
+    elif len(val) >= 3:
+        return np.random.choice(val)
+    else:
+        raise NotImplementedError
 
 
 def convert_observation_to_space(observation):
@@ -31,41 +41,58 @@ def convert_observation_to_space(observation):
 register(
     id='PositionControl-v0',
     entry_point='surrogate:PositionControlEnv',
-    max_episode_steps=100,
-    kwargs={'init_goal_condition':([-1.5, 1.5], [-1.5, 1.5])}
+    max_episode_steps=40,
+    kwargs={'init_fish_condition':([0.0], [0.0], [0.0]), 'init_goal_condition':([-1.5, 1.5], [-1.5, 1.5]), 'sparse_reward':False}
+)
+
+register(
+    id='PositionControl-v1',
+    entry_point='surrogate:PositionControlEnv',
+    max_episode_steps=40,
+    kwargs={'init_fish_condition':([0.0], [0.0], [0.0]), 'init_goal_condition':([-1.5, 1.5], [-1.5, 1.5]), 'sparse_reward':True}
 )
 
 class PositionControlEnv(gym.Env):
-    def __init__(self, init_goal_condition=([-1.5, 1.5], [-1.5, 1.5]), **kwargs) -> None:
-        self.h = 1 / 2
-        self.dt = self.h
-
+    '''
+        Y
+        |
+        |   o-> (robotic fish)
+        |
+        * - - - - X
+       O
+    '''
+    def __init__(self, init_fish_condition=([0.0], [0.0], [0.0]), init_goal_condition=([-1.5, 1.5], [-1.5, 1.5]), sparse_reward=False, **kwargs) -> None:
         # model params based on specific robotic fish
+        self.h = 1 / 2  # [s]
+        self.dt = self.h  # [s]
+
         self.M = 7
-        self.V_max = 0.3  # m/s
-        self.D = np.array([[0.14, 0.13], [0.15, 0.16], [0.15, 0.15], [0.15, 0.17], [0.15, 0.16], [0.14, 0.16], [0.16, 0.16]])  # m/s
-        self.A = np.array([[-0.26, -0.41], [-0.10, -0.24], [-0.06, -0.15], [0.01, -0.04], [0.11, 0.11], [0.20, 0.13], [0.24, 0.38]])  # rad/s
-        self.X_m = np.array([[-0.26, -0.26], [-0.18, -0.18], [-0.09, -0.09], [0, 0], [0.18, 0.18], [0.26, 0.26], [0.35, 0.35]])  # rad
+        self.V_max = 0.3  # [m/s]
+        self.D = np.array([[0.14, 0.13], [0.15, 0.16], [0.15, 0.15], [0.15, 0.17], [0.15, 0.16], [0.14, 0.16], [0.16, 0.16]])  # [m/s]
+        self.A = np.array([[-0.26, -0.41], [-0.10, -0.24], [-0.06, -0.15], [0.01, -0.04], [0.11, 0.11], [0.20, 0.13], [0.24, 0.38]])  # [rad/s]
+        self.X_m = np.array([[-0.26, -0.26], [-0.18, -0.18], [-0.09, -0.09], [0, 0], [0.18, 0.18], [0.26, 0.26], [0.35, 0.35]])  # [rad]
         
-        # task params
-        self.delta_p = 0.05  # m
-        
+        # params
+        self.init_fish_condition = init_fish_condition
         self.init_goal_condition = init_goal_condition
+        self.sparse_reward = sparse_reward
+
+        self.delta_p = 0.05  # m
 
         self.__dict__.update(kwargs)
 
         # space
-        self.action_space = gym.spaces.Discrete(self.M)
         self.observation_space = convert_observation_to_space(self.reset()[0])
+        self.action_space = gym.spaces.Discrete(self.M)
     
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
         super().reset(seed=seed)
         self.state = {'world':{}, 'robot':{}, 'scalar':{}}
         self.state['scalar']['k'] = 0
-        self.state['scalar']['ta'] = int((self.state['scalar']['k'] + 1) % 2)
-        self.state['scalar']['v'] = 0.0
+        self.state['scalar']['ta'] = int((self.state['scalar']['k']) % 2)
+        self.state['scalar']['v'] = 0.0  # [m/s]
         
-        self.state['world']['robot_pose'] = [np.array([0.0, 0.0, 0.0])]
+        self.state['world']['robot_pose'] = [np.array([analyze_init_condition(self.init_fish_condition[0]), analyze_init_condition(self.init_fish_condition[1]), analyze_init_condition(self.init_fish_condition[2])])]
         self.state['world']['task_goal_pose'] = np.array([analyze_init_condition(self.init_goal_condition[0]), analyze_init_condition(self.init_goal_condition[1]), 0])
 
         # task related processing
@@ -76,17 +103,16 @@ class PositionControlEnv(gym.Env):
     
     def step(self, action):
         self.state['scalar']['k'] += 1
-        self.state['scalar']['ta'] = int((self.state['scalar']['k'] + 1) % 2)
+        self.state['scalar']['ta'] = int((self.state['scalar']['k']) % 2)  # ta = 0 (when k = 0, 2, 4, ...), ta = 1 (when k = 1, 3, 5, ...)
         self.state['scalar']['v'] = self.V_max if self.state['scalar']['k'] > 40 else (1 - 1 / (1.15 ** self.state['scalar']['k'])) * self.V_max
 
-        # ta = 1 (when k = 0, 2, 4, ...), ta = 0 (when k = 1, 3, 5, ...)
         linear_vel = self.state['scalar']['v'] / self.V_max * self.D[int(action)][self.state['scalar']['ta']]  # m/s
-        angular_vel = self.A[int(action)][self.state['scalar']['ta']]  # rad/s
+        angular_vel = self.A[int(action)][self.state['scalar']['ta']]  # [rad/s]
         
         self.state['world']['robot_pose'].append(copy.deepcopy(self.state['world']['robot_pose'][-1]))
 
-        dt = self.h / 100
-        for _ in range(int(self.h / dt)):
+        dt = 0.001  # [s]
+        for k in range(int(self.h / dt)):
             dot_pose = np.array([linear_vel * np.cos(self.state['world']['robot_pose'][-1][2]), linear_vel * np.sin(self.state['world']['robot_pose'][-1][2]), angular_vel])
             self.state['world']['robot_pose'][-1] += dot_pose * dt
         
@@ -95,14 +121,18 @@ class PositionControlEnv(gym.Env):
             self.state['robot']['task_goal_pose'] = coordinate_transfer(np.linalg.inv(tf_from_robot_to_world), self.state['world']['task_goal_pose'])
             
             terminated = False  # only current reward
+            terminated = terminated or np.abs(self.state['world']['robot_pose'][-1][0]) > 1.8 or np.abs(self.state['world']['robot_pose'][-1][1]) > 1.8  # out of pool area
             terminated = terminated or np.linalg.norm(self.state['robot']['task_goal_pose'][:-1]) < self.delta_p
 
             truncated = False  # with future reward
 
             if terminated or truncated:
                 break
-
-        reward = 1 if terminated else -0.01
+        
+        if self.sparse_reward:
+            reward = 1 if np.linalg.norm(self.state['robot']['task_goal_pose'][:-1]) < self.delta_p else -0.01
+        else:
+            reward = - np.linalg.norm(self.state['robot']['task_goal_pose'][:-1]) * (k+1) * dt
 
         return self._get_obs(), reward, terminated, truncated, {}
 
@@ -192,10 +222,12 @@ class PathFollowingEnv(gym.Env):
         self.state['scalar']['psi'] = 0.0
         self.state['scalar']['beta'] = 0.0
 
+
         # task related processing
         path = self.state['world']['task_goal_pose'][:, :-1]
         p = self.state['world']['robot_pose'][-1]
         n_R_L = int(self.R_L / np.mean(np.linalg.norm(np.diff(path, axis=0), axis=1)))
+        
         self.ran = np.array([-n_R_L, n_R_L]).astype(int)
         self.ran[0] = np.max([0, self.ran[0]])
         self.ran[1] = np.min([path.shape[0], self.ran[1]])
@@ -242,6 +274,7 @@ class PathFollowingEnv(gym.Env):
         dot_pose = np.array([linear_vel * np.cos(self.state['world']['robot_pose'][-1][2]), linear_vel * np.sin(self.state['world']['robot_pose'][-1][2]), angular_vel])
         self.state['world']['robot_pose'].append(self.state['world']['robot_pose'][-1] + dot_pose * self.h)
         
+
         # task related processing
         path = self.state['world']['task_goal_pose'][:, :-1]
         p = self.state['world']['robot_pose'][-1]
@@ -432,12 +465,14 @@ class PoseRegulationEnv(gym.Env):
 
 
 if __name__ == '__main__':
-    # interaction
     from gymnasium.wrappers import TimeLimit
-    # env = TimeLimit(PositionControlEnv(init_goal_condition=([1.0], [1.0])), max_episode_steps=50)
+    np.set_printoptions(precision=3, suppress=True, floatmode='fixed', linewidth=150)  # useful for printing
+    
+    env = TimeLimit(PositionControlEnv(init_fish_condition=([0.0], [0.0], [0.0]), init_goal_condition=([1.0], [1.0])), max_episode_steps=120)
     # env = TimeLimit(PoseRegulationEnv(init_goal_condition=([1.8], [1.57], [2.55])), max_episode_steps=80)
-    env = TimeLimit(PathFollowingEnv(goal_path_type='line', init_pose_condition=([-0.25, 0.25], [-0.25, 0.25], [-np.pi/2, np.pi/2])), max_episode_steps=100)
-    print(env.observation_space, env.action_space)
+    # env = TimeLimit(PathFollowingEnv(goal_path_type='line', init_pose_condition=([-0.25, 0.25], [-0.25, 0.25], [-np.pi/2, np.pi/2])), max_episode_steps=100)
+    print(f"obs_dims: {env.observation_space.shape[0]} | act_nums: {env.action_space.n}")
+
     
     obs, info = env.reset()
     while True:        
