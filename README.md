@@ -1,4 +1,4 @@
-# surrogate-fish
+# surrogate-fish-dev
 
 This repertory is a **REPRODUCTION** of paper [From Simulation to Reality: A Learning Framework for Fish-Like Robots to Perform Control Tasks](https://ieeexplore.ieee.org/document/9802680/) published in T-RO 2022.
 
